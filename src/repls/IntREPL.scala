@@ -9,7 +9,6 @@ import scala.collection.mutable
 *  -Do the multiset operations
 *  -Later... Do multisetREPL
 * */
-//test
 class IntREPL extends REPLBase {
     type Base = Int
     override val replName: String = "int-repl"
