@@ -2,47 +2,52 @@ package repls
 
 import repls.MultiSet.empty
 
-/*
-    Multiset is a Map of elements and their respective count.
-    For example:
-    {a,a,a,b,c,c} = Map('a'->3, 'b'->1, 'c'->2)
- */
+case class MultiSet[T] (multiplicity: Map[T, Int]) { //multiplicity is the actual Multiset/map of our object
 
+    def *(that: MultiSet[T]): MultiSet[T] = {
+        val commonKeys = this.multiplicity.keySet intersect that.multiplicity.keySet //returns the SET of common keys (the set you would get from multiplying the multisets' sets (aka w/o dupes))
 
-case class MultiSet[T] (multiplicity: Map[T, Int]) {
+        val mutableElementsMap = collection.mutable.Map.empty[T, Int]
 
-    /* TODO
-        Intersection of two multisets:
-        ∀x m_c(x) = min(m_a(x), m_b(x))
-        Example:
-        {a,b,b,c,c,c} * {b,c,c,c,c} = {b,c,c,c}
-     */
-    def *(that: MultiSet[T]): MultiSet[T] = empty[T]
+        for (key <- commonKeys) {
+            val minCount = math.min(this.multiplicity(key), that.multiplicity(key))
+             mutableElementsMap(key) = minCount
+        }
+        MultiSet(mutableElementsMap.toMap)
+    }
+    def +(that: MultiSet[T]): MultiSet[T] = {
+        val allKeys = this.multiplicity.keySet ++ that.multiplicity.keySet //returns the SET of keys that appear in at least one multiset
+        val mutableElementsMap = collection.mutable.Map.empty[T, Int]
 
-    /* TODO
-        Summation of two multisets:
-        ∀x m_c(x) = m_a(x) + m_b(x)
-        Example:
-        {a,b,c,c} + {a,c,d} = {a,a,b,c,c,c,d}
-     */
-    def +(that: MultiSet[T]): MultiSet[T] = empty[T]
+        for (key <- allKeys) {
+            val newCount = this.multiplicity.getOrElse(key, 0) + that.multiplicity.getOrElse(key, 0)
+            mutableElementsMap(key) = newCount
+        }
+        MultiSet(mutableElementsMap.toMap)
+    }
 
-    /* TODO
-        Subtraction of two multisets:
-        ∀x m_c(x) = max(m_a(x) - m_b(x), 0)
-        Example:
-        {a,b,b,d} - {b,c,c,d,d} = {a,b}
-     */
-    def -(that: MultiSet[T]): MultiSet[T] = empty[T]
-    /* TODO
-        Make sure a multiset can be returned as a sequence.
+    def -(that: MultiSet[T]): MultiSet[T] = {
+        val mutableElementsMap = collection.mutable.Map.empty[T, Int]
 
-        For example the multiset {a,a,b} should give the sequence Seq(a,a,b).
+        for (key <- this.multiplicity.keySet) {
+            val thisCount = this.multiplicity(key)
+            val thatCount = that.multiplicity.getOrElse(key, 0)
+            val newCount = math.max(thisCount - thatCount, 0)
+            if (newCount > 0) mutableElementsMap(key) = newCount
+        }
+        MultiSet(mutableElementsMap.toMap)
+    }
 
-        The order of the elements in the sequence does not matter.
-     */
     def toSeq: Seq[T] = {
-        Seq.empty
+        val result = collection.mutable.ListBuffer.empty[T]
+
+        for ((elem, count) <- multiplicity) {
+            for (_ <- 1 to count) {
+                result += elem
+            }
+        }
+
+        result.toSeq
     }
 
     val MaxCountForDuplicatePrint = 5
@@ -64,8 +69,19 @@ case class MultiSet[T] (multiplicity: Map[T, Int]) {
 
 object MultiSet {
     def empty[T] : MultiSet[T] = MultiSet(Map[T,Int]())
-    /* TODO
-        Write a constructor that constructs a multiset from a sequence of elements
-     */
-    def apply[T](elements: Seq[T]): MultiSet[T] = empty[T]
+    //A "type" multiset is a map between type T and int, which represents sequences of {a,a,a,b,c,c} as: Map('a'->3, 'b'->1, 'c'->2)
+    def apply[T](elements: Seq[T]): MultiSet[T] = {
+        val mutableElementsMap = collection.mutable.Map.empty[T, Int]
+
+        for (elem <- elements) {
+            if (mutableElementsMap.contains(elem)) {
+                mutableElementsMap(elem) = mutableElementsMap(elem) + 1
+            }
+            else {
+                mutableElementsMap(elem) = 1
+            }
+        }
+
+        MultiSet(mutableElementsMap.toMap)
+    }
 }

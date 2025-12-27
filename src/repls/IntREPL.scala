@@ -2,13 +2,6 @@ package repls
 
 import scala.collection.mutable
 
-/*
-* todo:
-*  -Fix the 3 simplify parts to pass advanced & distributivity.
-*  -Fix pretty printing
-*  -Do the multiset operations
-*  -Later... Do multisetREPL
-* */
 class IntREPL extends REPLBase {
     type Base = Int
     override val replName: String = "int-repl"
@@ -36,19 +29,19 @@ class IntREPL extends REPLBase {
     abstract class Expression { //abstract = no function. We use it so that simplify() later on has a uniform type to work with for all const, var, add, mul, sub
         def value(bindings : Map[String,Int]) : Int //For separation of concerns & modularity we do not use currentBindings :)
     }
-    case class Const(i : Int) extends Expression {
+    protected case class Const(i : Int) extends Expression {
         override def value(bindings: Map[String, Int]): Int = i //no storage, just return the value
     }
-    case class Var(name: String) extends Expression {
+    protected case class Var(name: String) extends Expression {
         override def value(bindings: Map[String, Int]): Int = bindings(name) //returns the value associated with our varname from the provided mapping
     }
-    case class Add(left: Expression, right: Expression) extends Expression {
+    protected case class Add(left: Expression, right: Expression) extends Expression {
         override def value(bindings: Map[String, Int]): Int = left.value(bindings) + right.value(bindings) //evaluate LHS and RHS (recursion), then add
     }
-    case class Mul(left: Expression, right: Expression) extends Expression {
+    protected case class Mul(left: Expression, right: Expression) extends Expression {
         override def value(bindings: Map[String, Int]): Int = left.value(bindings) * right.value(bindings) //evaluate LHS and RHS (recursion), then mul
     }
-    case class Sub(left: Expression, right: Expression) extends Expression {
+    protected case class Sub(left: Expression, right: Expression) extends Expression {
         override def value(bindings: Map[String, Int]): Int = left.value(bindings) - right.value(bindings) //evaluate LHS and RHS (recursion), then sub
     }
 
