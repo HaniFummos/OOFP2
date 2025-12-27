@@ -1,14 +1,228 @@
 package repls
 
+import scala.collection.mutable
+
 class MultiSetREPL extends REPLBase {
-    // Have a REPL of a MutliSet of strings
     override type Base = MultiSet[String]
     override val replName: String = "multiset-repl"
 
+    private var currentBindings: Map[String, MultiSet[String]] = Map.empty
+
     override def readEval(command: String): String = {
-        // TODO: complete me!
-        ""
+        val tokens : Seq[String] = SplitExpressionString.splitExpressionString(command) //splits all tokens perfectly
+        if (tokens.isEmpty) return "empty expression"
+
+        tokens.head match {
+            case "@" =>
+                val expr = parseExpression(tokens.tail) //remove the @
+                val simplified = simplify(expr, currentBindings)  // Returns Expression
+                prettyPrint(simplified)
+            case variable if tokens.length >= 3 && tokens(1) == "=" => // variable = tokens.head
+                val expr = parseExpression(tokens.drop(2)) //drop(2) takes tokens without the first 2, removing the varname and equals
+                assign(variable, expr, currentBindings)
+            case _ =>
+                val expr = parseExpression(tokens)
+                evaluate(expr, currentBindings)
+        }
     }
 
-    // TODO: Implement any further functions that are specifically for an MultiSetREPL
+    abstract class Expression { //abstract = no function. We use it so that simplify() later on has a uniform type to work with for all const, var, add, mul, sub
+        def value(bindings : Map[String,MultiSet[String]]) : MultiSet[String] //For separation of concerns & modularity we do not use currentBindings :)
+    }
+    protected case class Const(i : MultiSet[String]) extends Expression {
+        override def value(bindings: Map[String, MultiSet[String]]): MultiSet[String] = i //no storage, just return the value
+    }
+    protected case class Var(name: String) extends Expression {
+        override def value(bindings: Map[String, MultiSet[String]]): MultiSet[String] = bindings(name) //returns the value associated with our varname from the provided mapping
+    }
+    protected case class Add(left: Expression, right: Expression) extends Expression {
+        override def value(bindings: Map[String, MultiSet[String]]): MultiSet[String] = left.value(bindings) + right.value(bindings) //evaluate LHS and RHS (recursion), then add
+    }
+    protected case class Mul(left: Expression, right: Expression) extends Expression {
+        override def value(bindings: Map[String, MultiSet[String]]): MultiSet[String] = left.value(bindings) * right.value(bindings) //evaluate LHS and RHS (recursion), then mul
+    }
+    protected case class Sub(left: Expression, right: Expression) extends Expression {
+        override def value(bindings: Map[String, MultiSet[String]]): MultiSet[String] = left.value(bindings) - right.value(bindings) //evaluate LHS and RHS (recursion), then sub
+    }
+
+    private def parseExpression(tokens: Seq[String]): Expression = {
+        val rpn = shuntingYard(tokens)
+        buildExpressionTree(rpn)
+    }
+    private def precedence(op: String): Int = op match {
+        case "+" | "-" => 2
+        case "*" => 3
+        case _ => 0
+    }
+    private def shuntingYard(tokens: Seq[String]): Seq[String] = {
+        val output = mutable.Queue[String]()
+        val stack = mutable.Stack[String]()
+
+        for (token <- tokens) {
+            token match {
+                case "+" | "-" | "*" =>
+                    while (stack.nonEmpty && stack.top != "(" && precedence(stack.top) >= precedence(token)) { //pop until stack top has lower or equal precedence
+                        output.enqueue(stack.pop())
+                    }
+                    stack.push(token)
+                case "(" => stack.push(token)
+                case ")" =>
+                    while (stack.nonEmpty && stack.top != "(") {
+                        output.enqueue(stack.pop())
+                    }
+                    if (stack.nonEmpty && stack.top == "(") {
+                        stack.pop()
+                    }
+                case _ => output.enqueue(token)
+            }
+        }
+
+        while (stack.nonEmpty) {
+            output.enqueue(stack.pop())
+        }
+
+        output.toSeq
+    }
+
+
+    private def buildExpressionTree(rpn: Seq[String]): Expression = {
+        val stack = mutable.Stack[Expression]()
+
+        for (token <- rpn) {
+            token match {
+                case "+" =>
+                    val right = stack.pop()
+                    val left = stack.pop()
+                    stack.push(Add(left, right))
+
+                case "-" =>
+                    val right = stack.pop()
+                    val left = stack.pop()
+                    stack.push(Sub(left, right))
+
+                case "*" =>
+                    val right = stack.pop()
+                    val left = stack.pop()
+                    stack.push(Mul(left, right))
+
+                case "{}" =>
+                    stack.push(Const(MultiSet.empty[String]))
+
+                case t if t.startsWith("{") && t.endsWith("}") =>
+                    val inner = t.substring(1, t.length - 1)
+                    val elements = SplitExpressionString.splitExpressionString(inner).filter(token => token != "," && token.nonEmpty)
+                    stack.push(Const(MultiSet(elements)))
+
+                case _ => //variables
+                    stack.push(Var(token))
+            }
+        }
+
+        if (stack.isEmpty) Const(MultiSet.empty) else stack.pop()
+    }
+
+    private def simplify(expr: Expression, bindings: Map[String, MultiSet[String]]): Expression = { //bottom-up
+        expr match {
+            case Const(i) => Const(i)
+            case Var(name) =>
+                bindings.get(name) match {
+                    case Some(value) => Const(value)
+                    case None => Var(name)
+                }
+
+            case Add(left, right) =>
+                val sl = simplify(left, bindings)
+                val sr = simplify(right, bindings)
+                simplifyAdd(sl, sr, bindings)
+
+            case Mul(left, right) =>
+                val sl = simplify(left, bindings)
+                val sr = simplify(right, bindings)
+                simplifyMul(sl, sr)
+
+            case Sub(left, right) =>
+                val sl = simplify(left, bindings)
+                val sr = simplify(right, bindings)
+                simplifySub(sl, sr)
+        }
+    }
+
+    private def simplifyAdd(left: Expression, right: Expression, bindings: Map[String, MultiSet[String]]): Expression = {
+        (left, right) match {
+            case (Const(ms), r) if ms.multiplicity.isEmpty => r
+            case (l, Const(ms)) if ms.multiplicity.isEmpty => l
+            case (Const(a), Const(b)) => Const(a + b) //easy cases...
+
+            case (l, r) if l == r => l //Multiset exclusive rule 🤩
+
+            case (Mul(a1, b), Mul(a2, c)) if a1 == a2 => Mul(simplify(a1, bindings), simplify(Add(b, c), bindings)) //(even though we do bottom up, we will guaranteed catch these patterns eventually)
+            case (Mul(b, a1), Mul(a2, c)) if a1 == a2 => Mul(simplify(a1, bindings), simplify(Add(b, c), bindings))
+            case (Mul(a1, b), Mul(c, a2)) if a1 == a2 => Mul(simplify(a1, bindings), simplify(Add(b, c), bindings))
+            case (Mul(b, a1), Mul(c, a2)) if a1 == a2 => Mul(simplify(a1, bindings), simplify(Add(b, c), bindings))
+
+            case _ => Add(left, right) // Default, for example add(x,y) with both unbound and no helpful distributivity anywhere
+        }
+    }
+
+    private def simplifyMul(left: Expression, right: Expression): Expression = {
+        (left, right) match {
+            case (Const(ms), _) if ms.multiplicity.isEmpty => Const(MultiSet.empty)
+            case (_, Const(ms)) if ms.multiplicity.isEmpty => Const(MultiSet.empty)
+            case (Const(a), Const(b)) => Const(a * b) // Multiset exclusive!!
+            case (l, r) if l == r => l
+            case _ => Mul(left, right)
+        }
+    }
+
+    private def simplifySub(left: Expression, right: Expression): Expression = {
+        (left, right) match {
+            case (l, r) if l == r => Const(MultiSet.empty)
+            case (Const(a), Const(b)) => Const(a - b)
+            case _ => Sub(left, right)
+        }
+    }
+
+    private def prettyPrint(expr: Expression): String = expr match {
+        case Const(i) => i.toString
+        case Var(name) => name
+        case Add(left, right) => s"${parenthesesCheck(left, "+")} + ${parenthesesCheck(right, "+")}"
+        case Mul(left, right) => s"${parenthesesCheck(left, "*")} * ${parenthesesCheck(right, "*")}"
+        case Sub(left, right) => s"${parenthesesCheck(left, "-")} - ${parenthesesCheck(right, "-")}"
+    }
+
+    private def parenthesesCheck(expr: Expression, parentOperator: String): String = {
+        val needsParentheses = expr match { // (l1 op2 l2) op (r1 op2 r2) --> if op2 < op, need parentheses
+            case Add(_, _) if precedence("+") < precedence(parentOperator) => true //I know that checking if parentOperator is * has the same effect...
+            case Sub(_, _) if precedence("-") < precedence(parentOperator) => true
+            case _ => false
+        }
+
+        val str = prettyPrint(expr)
+        if (needsParentheses) s"( $str )" else str
+    }
+
+    private def assign(variable: String, expr: Expression, bindings: Map[String, MultiSet[String]]): String = {
+        try {
+            val value = expr.value(bindings) //get the single constant value of our expression. Throws an error if there's an unbound variable
+            currentBindings = currentBindings + (variable -> value)
+            s"$variable = $value"
+        }
+        catch {
+            case e: NoSuchElementException =>
+                val missingVar = e.getMessage.replace("key not found: ", "")
+                s"Unknown variable: $missingVar"
+        }
+    }
+
+    private def evaluate(expr: Expression, bindings: Map[String, MultiSet[String]]): String = {
+        try {
+            val value = expr.value(bindings)
+            value.toString
+        }
+        catch {
+            case e: NoSuchElementException =>
+                val missingVar = e.getMessage.replace("key not found: ", "")
+                s"Unknown variable: $missingVar"
+        }
+    }
 }

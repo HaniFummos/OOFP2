@@ -19,10 +19,10 @@ class IntREPL extends REPLBase {
                 prettyPrint(simplified)
             case variable if tokens.length >= 3 && tokens(1) == "=" => // variable = tokens.head
                 val expr = parseExpression(tokens.drop(2)) //drop(2) takes tokens without the first 2, removing the varname and equals
-                assign(variable, expr)
+                assign(variable, expr, currentBindings)
             case _ =>
                 val expr = parseExpression(tokens)
-                evaluate(expr)
+                evaluate(expr, currentBindings)
         }
     }
 
@@ -208,9 +208,9 @@ class IntREPL extends REPLBase {
         if (needsParentheses) s"( $str )" else str
     }
 
-    private def assign(variable: String, expr: Expression): String = {
+    private def assign(variable: String, expr: Expression, bindings: Map[String, Int]): String = {
         try {
-            val value = expr.value(currentBindings) //get the single constant value of our expression. Throws an error if there's an unbound variable
+            val value = expr.value(bindings) //get the single constant value of our expression. Throws an error if there's an unbound variable
             currentBindings = currentBindings + (variable -> value)
             s"$variable = $value"
         }
@@ -221,9 +221,9 @@ class IntREPL extends REPLBase {
         }
     }
 
-    private def evaluate(expr: Expression): String = {
+    private def evaluate(expr: Expression, bindings: Map[String, Int]): String = {
         try {
-            val value = expr.value(currentBindings)
+            val value = expr.value(bindings)
             value.toString
         }
         catch {
